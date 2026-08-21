@@ -48,10 +48,6 @@
 #ifndef FlashStorage_SAMD_Impl_h
 #define FlashStorage_SAMD_Impl_h
 
-#if defined(__SAME51__) || defined(__SAME53__) || defined(__SAME54__)
-#include "same5x_compat_shim.h"
-#endif
-
 #if (defined(__SAMD51__) || defined(__SAME51__) || defined(__SAME53__) ||      \
      defined(__SAME54__))
 #include "FlashStorage_SAMD51.h"
