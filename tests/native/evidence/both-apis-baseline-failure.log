@@ -1,0 +1,232 @@
+In file included from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD_Impl.h:53,
+                 from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.h:47,
+                 from /tmp/simio-winusb-flashstorage/tests/native/nvm_cache_safety.cpp:124:
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h: In function 'void flash_nvmctrl_set_address(const volatile void*)':
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:92:32: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+   92 |   NVMCTRL_REGS->NVMCTRL_ADDR = (uint32_t)flash_ptr;
+      |                                ^~~~~~~~~~~~~~~~~~~
+In file included from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.h:46:
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h: In member function 'void FlashClass::read(const volatile void*, void*)':
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:234:22: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+  234 |   FLASH_HEXLOGERROR0((uint32_t ) flash_address);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.hpp:104:69: note: in definition of macro 'FLASH_HEXLOGERROR0'
+  104 | #define FLASH_HEXLOGERROR0(x)     if(FLASH_DEBUG>0) { FLASH_PRINTLN(x, HEX); }
+      |                                                                     ^
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:237:22: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+  237 |   FLASH_HEXLOGDEBUG0((uint32_t ) flash_ptr);
+      |                      ^~~~~~~~~~~~~~~~~~~~~
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.hpp:113:69: note: in definition of macro 'FLASH_HEXLOGDEBUG0'
+  113 | #define FLASH_HEXLOGDEBUG0(x)     if(FLASH_DEBUG>1) { FLASH_PRINTLN(x, HEX); }
+      |                                                                     ^
+Branch: same54_regs
+PASS observer_rejects_late_disable_transient_enable_early_restore
+FAIL initial_cache_state bytes=16 initial=0x0004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL initial_cache_state bytes=16 initial=0x4004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x4004 ctrla=0x4004
+  CTRLB value=0xa515 ctrla=0x4004
+  CTRLB value=0xa503 ctrla=0x4004
+FAIL initial_cache_state bytes=16 initial=0x8004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x8004 ctrla=0x8004
+  CTRLB value=0xa515 ctrla=0x8004
+  CTRLB value=0xa503 ctrla=0x8004
+PASS initial_cache_state bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=1 ready_return=1 early_store=0
+PASS page_boundary bytes=0 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=0/0 safe_window=1 ready_return=1 early_store=0
+FAIL page_boundary bytes=1 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=3 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=4 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=16 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=511 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=512 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=513 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=516 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=1024 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=1028 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=3/3 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL sticky_done_delayed_page_write bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=1 ready_return=0 early_store=0
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL sticky_done_delayed_page_clear bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=0/1 safe_window=1 ready_return=0 early_store=1
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL initially_clear_done_then_sticky bytes=516 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/2 safe_window=1 ready_return=0 early_store=0
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  COMPLETE value=0x0015 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL sticky_done_delayed_erase initial_busy=0 ready_return=0 ignored_address=0
+FAIL sticky_done_delayed_erase initial_busy=4 ready_return=0 ignored_address=1
+FAIL storage_erase_then_write data=1 order=1 restored=1 complete=0 safe_window=0
+  ADDR value=0x6dcee600 ctrla=0x0004
+  CTRLB value=0xa501 ctrla=0x0004
+  CTRLA value=0x0004 ctrla=0x0004
+  COMPLETE value=0x0001 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL cache_enabled_delayed_page_write bytes=16 initial=0x0004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=0 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+20 failed cases. This tests the documented unsafe NVM command sequence, not silicon HardFault execution.
+In file included from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD_Impl.h:53,
+                 from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.h:47,
+                 from /tmp/simio-winusb-flashstorage/tests/native/nvm_cache_safety.cpp:124:
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h: In function 'void flash_nvmctrl_set_address(const volatile void*)':
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:127:23: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+  127 |   NVMCTRL->ADDR.reg = (uint32_t)flash_ptr;
+      |                       ^~~~~~~~~~~~~~~~~~~
+In file included from /tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.h:46:
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h: In member function 'void FlashClass::read(const volatile void*, void*)':
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:234:22: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+  234 |   FLASH_HEXLOGERROR0((uint32_t ) flash_address);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.hpp:104:69: note: in definition of macro 'FLASH_HEXLOGERROR0'
+  104 | #define FLASH_HEXLOGERROR0(x)     if(FLASH_DEBUG>0) { FLASH_PRINTLN(x, HEX); }
+      |                                                                     ^
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD51.h:237:22: warning: cast from 'const volatile void*' to 'uint32_t' {aka 'unsigned int'} loses precision [-fpermissive]
+  237 |   FLASH_HEXLOGDEBUG0((uint32_t ) flash_ptr);
+      |                      ^~~~~~~~~~~~~~~~~~~~~
+/tmp/simio-winusb-flashstorage/src/FlashStorage_SAMD.hpp:113:69: note: in definition of macro 'FLASH_HEXLOGDEBUG0'
+  113 | #define FLASH_HEXLOGDEBUG0(x)     if(FLASH_DEBUG>1) { FLASH_PRINTLN(x, HEX); }
+      |                                                                     ^
+Branch: samd51_bitfields
+PASS observer_rejects_late_disable_transient_enable_early_restore
+FAIL initial_cache_state bytes=16 initial=0x0004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL initial_cache_state bytes=16 initial=0x4004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x4004 ctrla=0x4004
+  CTRLB value=0xa515 ctrla=0x4004
+  CTRLB value=0xa503 ctrla=0x4004
+FAIL initial_cache_state bytes=16 initial=0x8004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x8004 ctrla=0x8004
+  CTRLB value=0xa515 ctrla=0x8004
+  CTRLB value=0xa503 ctrla=0x8004
+PASS initial_cache_state bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=1 ready_return=1 early_store=0
+PASS page_boundary bytes=0 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=0/0 safe_window=1 ready_return=1 early_store=0
+FAIL page_boundary bytes=1 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=3 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=4 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=16 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=511 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=512 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=513 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=516 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=1024 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=2/2 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL page_boundary bytes=1028 initial=0x0034 data=1 guards=1 preserved=1 manual=1 pages=3/3 safe_window=0 ready_return=1 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL sticky_done_delayed_page_write bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=1 ready_return=0 early_store=0
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL sticky_done_delayed_page_clear bytes=16 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=0/1 safe_window=1 ready_return=0 early_store=1
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL initially_clear_done_then_sticky bytes=516 initial=0xc004 data=1 guards=1 preserved=1 manual=1 pages=1/2 safe_window=1 ready_return=0 early_store=0
+  CTRLA value=0xc004 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  COMPLETE value=0x0015 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+  CTRLB value=0xa515 ctrla=0xc004
+  CTRLB value=0xa503 ctrla=0xc004
+FAIL sticky_done_delayed_erase initial_busy=0 ready_return=0 ignored_address=0
+FAIL sticky_done_delayed_erase initial_busy=4 ready_return=0 ignored_address=1
+FAIL storage_erase_then_write data=1 order=1 restored=1 complete=0 safe_window=0
+  ADDR value=0x6fbe6600 ctrla=0x0004
+  CTRLB value=0xa501 ctrla=0x0004
+  CTRLA value=0x0004 ctrla=0x0004
+  COMPLETE value=0x0001 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+FAIL cache_enabled_delayed_page_write bytes=16 initial=0x0004 data=1 guards=1 preserved=1 manual=1 pages=1/1 safe_window=0 ready_return=0 early_store=0
+  CTRLA value=0x0004 ctrla=0x0004
+  CTRLB value=0xa515 ctrla=0x0004
+  CTRLB value=0xa503 ctrla=0x0004
+20 failed cases. This tests the documented unsafe NVM command sequence, not silicon HardFault execution.
