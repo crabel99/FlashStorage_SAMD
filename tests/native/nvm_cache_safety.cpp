@@ -256,6 +256,37 @@ bool runStorageWrite() {
     return pass;
 }
 
+bool runEraseGeometry(uint32_t pages, uint32_t length) {
+    const uint32_t initialParam = nativeNvm.NVMCTRL_PARAM;
+    nativeNvm.NVMCTRL_PARAM = (6u << 16) | pages;
+#if defined(TEST_LEGACY_SAMD51)
+    const uint32_t initialPages = legacyNvm.PARAM.bit.NVMP;
+    legacyNvm.PARAM.bit.NVMP = pages;
+#endif
+    FlashClass flash(reinterpret_cast<const void *>(0x20000u), length);
+    Trace captured;
+    captured.eraseDelay = 4;
+    trace = &captured;
+    flash.erase();
+    trace = nullptr;
+    nativeNvm.NVMCTRL_PARAM = initialParam;
+#if defined(TEST_LEGACY_SAMD51)
+    legacyNvm.PARAM.bit.NVMP = initialPages;
+#endif
+    std::vector<uint32_t> addresses;
+    for (const auto &entry : captured.entries)
+        if (std::strcmp(entry.kind, "ADDR") == 0)
+            addresses.push_back(entry.value);
+    std::vector<uint32_t> expected;
+    for (uint32_t offset = 0; offset < length; offset += 8192u)
+        expected.push_back(0x20000u + offset);
+    const bool pass = addresses == expected && !captured.remaining &&
+                      !captured.invalidOrder && !captured.ignoredAddress;
+    std::printf("%s erase_8k_blocks flash_bytes=%u length=%u addresses=%zu/%zu\n",
+                pass ? "PASS" : "FAIL", pages * 512u, length, addresses.size(), expected.size());
+    return pass;
+}
+
 int main() {
     unsigned failed = !verifyObserver();
     for (uint32_t disabled : {0u, cache0, cache1, cacheMask})
@@ -268,6 +299,9 @@ int main() {
     failed += !runErase();
     failed += !runErase(4u);
     failed += !runStorageWrite();
+    for (uint32_t pages : {512u, 1024u, 2048u})
+        for (uint32_t length : {0u, 8192u, 8193u, 16384u, 16385u})
+            failed += !runEraseGeometry(pages, length);
     failed += !runWrite("cache_enabled_delayed_page_write", 4u, 16u, 0u, 4u);
     std::printf("%u failed cases. This tests the documented unsafe NVM command sequence, not silicon HardFault execution.\n", failed);
     return failed ? 1 : 0;
