@@ -123,6 +123,17 @@ public:
     return true;
   }
 
+  bool retirePreviousAsync(Completion completion = nullptr, void* context = nullptr) {
+    if (!initialized_ || !valid_ || geometry_.smart || busy()) return false;
+    callback_ = completion;
+    context_ = context;
+    status_ = ReservedEEPROMStatus::Busy;
+    target_ = 0;
+    cursor_ = 0;
+    phase_ = Phase::RetireActive;
+    return true;
+  }
+
   bool commitAsync(Completion completion = nullptr, void* context = nullptr) {
     if (!initialized_ || busy()) return false;
     callback_ = completion;
@@ -201,12 +212,50 @@ public:
         finish(ReservedEEPROMStatus::Ready);
         return;
       }
+      case Phase::RetireActive: {
+        uint32_t sequence = 0;
+        if (!recordValid(active_, sequence) || sequence != sequence_) { hardwareError(); return; }
+        phase_ = Phase::RetireScan;
+        return;
+      }
+      case Phase::RetireScan:
+        if (target_ == records_) { finish(ReservedEEPROMStatus::Ready); return; }
+        if (target_ == active_) { ++target_; return; }
+        if (!backend_.readBytes(recordAddress(target_) + cursor_, data, sizeof(data))) {
+          hardwareError(); return;
+        }
+        for (unsigned i = 0; i < sizeof(data); ++i) {
+          if (data[i] != 0xff) { phase_ = Phase::RetireErase; return; }
+        }
+        cursor_ += sizeof(data);
+        if (cursor_ == geometry_.rowBytes) { ++target_; cursor_ = 0; }
+        return;
+      case Phase::RetireErase:
+        if (!backend_.erase(recordAddress(target_))) { hardwareError(); return; }
+        cursor_ = 0;
+        waitFor(Phase::RetireVerify);
+        return;
+      case Phase::RetireVerify:
+        if (!backend_.readBytes(recordAddress(target_) + cursor_, data, sizeof(data))) {
+          hardwareError(); return;
+        }
+        for (unsigned i = 0; i < sizeof(data); ++i) {
+          if (data[i] != 0xff) { hardwareError(); return; }
+        }
+        cursor_ += sizeof(data);
+        if (cursor_ == geometry_.rowBytes) {
+          ++target_;
+          cursor_ = 0;
+          phase_ = Phase::RetireScan;
+        }
+        return;
       case Phase::Idle: return;
     }
   }
 
 private:
-  enum class Phase : uint8_t { Idle, Compare, Erase, Payload, Header, Verify, Wait };
+  enum class Phase : uint8_t { Idle, Compare, Erase, Payload, Header, Verify, Wait,
+                               RetireActive, RetireScan, RetireErase, RetireVerify };
   static uint32_t minimum(uint32_t a, uint32_t b) { return a < b ? a : b; }
   static uint32_t marker() { return 0x31504552u; } // REP1, little endian.
   static bool newer(uint32_t a, uint32_t b) { return a != b && (a - b) < 0x80000000u; }

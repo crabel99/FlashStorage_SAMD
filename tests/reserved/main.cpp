@@ -25,6 +25,8 @@ public:
   Status configuration = Status::Ready;
   bool error = false;
   bool readError = false;
+  bool eraseError = false;
+  bool incompleteErase = false;
 
   Status geometry(ReservedEEPROMGeometry& g) override {
     g = {uint32_t(data.size()), uint16_t(smart ? 4 : 64), uint16_t(smart ? 0 : 256), smart};
@@ -39,10 +41,12 @@ public:
   }
   bool erase(uint32_t offset) override {
     CHECK(!smart && !delay && offset % 256 == 0 && offset + 256 <= data.size());
+    if (eraseError) return false;
     ++erases;
     const bool cut = int(operations++) == cutOperation;
     std::fill(data.begin() + offset, data.begin() + offset + (cut ? std::min(prefix, 256u) : 256), 0xff);
     if (cut) throw Cut();
+    if (incompleteErase) data[offset + 255] = 0;
     rowPrograms[offset / 256] = 0;
     delay = 2;
     return true;
@@ -294,7 +298,137 @@ static void smartEEPROM() {
   CHECK(restart.read(0) == 8 && restart.read(4) == 12 && restart.read(5) == 0xff);
 }
 
+static Memory retirementSeed() {
+  Memory mem;
+  uint8_t ram[640];
+  ReservedEEPROMCore store(mem);
+  CHECK(store.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+  for (unsigned generation = 1; generation <= 10; ++generation) {
+    fill(store, uint8_t(generation));
+    commit(store);
+  }
+  return mem;
+}
+
+static void retirement() {
+  Memory mem = retirementSeed();
+  const std::vector<uint8_t> before = mem.data;
+  const unsigned start = mem.operations;
+  uint8_t ram[640];
+  ReservedEEPROMCore store(mem);
+  CHECK(store.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+  Callback callback;
+  CHECK(store.retirePreviousAsync(completed, &callback));
+  CHECK(callback.calls == 0 && store.status() == Status::Busy);
+  CHECK(!store.retirePreviousAsync() && !store.commitAsync() && !store.update(0, 1));
+  while (store.busy()) {
+    CHECK(callback.calls == 0);
+    store.service();
+  }
+  CHECK(callback.calls == 1 && callback.result == Status::Ready);
+  CHECK(mem.operations == start + 3);
+  for (unsigned record = 0; record < 4; ++record) {
+    const unsigned address = 256 + record * 768;
+    if (record == 1) {
+      CHECK(std::equal(before.begin() + address, before.begin() + address + 768,
+                       mem.data.begin() + address));
+    } else {
+      CHECK(std::all_of(mem.data.begin() + address, mem.data.begin() + address + 256,
+                        [](uint8_t value) { return value == 0xff; }));
+      CHECK(std::equal(before.begin() + address + 256, before.begin() + address + 768,
+                       mem.data.begin() + address + 256));
+    }
+  }
+  CHECK(std::equal(before.begin(), before.begin() + 256, mem.data.begin()));
+  CHECK(std::equal(before.begin() + 3328, before.end(), mem.data.begin() + 3328));
+  const unsigned retiredOperations = mem.operations;
+  CHECK(store.retirePreviousAsync(completed, &callback));
+  finish(store);
+  CHECK(callback.calls == 2 && callback.result == Status::Ready);
+  CHECK(mem.operations == retiredOperations);
+  store.service();
+  CHECK(callback.calls == 2);
+  fill(store, 11); commit(store);
+  ReservedEEPROMCore reboot(mem);
+  CHECK(reboot.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+  CHECK(reboot.valid() && pattern(reboot, 11));
+}
+
+static void retirementPowerCuts() {
+  const Memory base = retirementSeed();
+  unsigned cuts = 0;
+  for (unsigned operation = 0; operation < 3; ++operation) {
+    for (unsigned prefix = 0; prefix <= 256; ++prefix) {
+      Memory mem = base;
+      mem.cutOperation = int(base.operations + operation);
+      mem.prefix = prefix;
+      uint8_t ram[640];
+      ReservedEEPROMCore store(mem);
+      CHECK(store.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+      Callback callback;
+      CHECK(store.retirePreviousAsync(completed, &callback));
+      try { finish(store); CHECK(false); } catch (const Cut&) {}
+      CHECK(callback.calls == 0);
+      mem.delay = 0;
+      mem.cutOperation = -1;
+      ReservedEEPROMCore reboot(mem);
+      CHECK(reboot.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+      CHECK(reboot.valid() && pattern(reboot, 10));
+      CHECK(reboot.retirePreviousAsync());
+      finish(reboot);
+      mem.data[1024] ^= 1;
+      ReservedEEPROMCore corrupted(mem);
+      CHECK(corrupted.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+      CHECK(!corrupted.valid());
+      ++cuts;
+    }
+  }
+  std::printf("D21 retirement erase prefixes checked: %u\n", cuts);
+}
+
+static void retirementRejectionsAndErrors() {
+  Memory fresh;
+  uint8_t ram[640];
+  ReservedEEPROMCore uninitialized(fresh);
+  CHECK(!uninitialized.retirePreviousAsync());
+  CHECK(uninitialized.begin(0, 3072, ram, sizeof(ram)) == Status::Ready);
+  CHECK(!uninitialized.retirePreviousAsync());
+  Memory smart(true);
+  ReservedEEPROMCore smartStore(smart);
+  CHECK(smartStore.begin(0, 3072, ram, sizeof(ram)) == Status::Ready);
+  CHECK(!smartStore.retirePreviousAsync());
+  CHECK(smart.operations == 0);
+
+  for (unsigned failure = 0; failure < 6; ++failure) {
+    Memory mem = retirementSeed();
+    ReservedEEPROMCore store(mem);
+    CHECK(store.begin(256, 3072, ram, sizeof(ram)) == Status::Ready);
+    Callback callback;
+    if (failure == 0) mem.readError = true;
+    if (failure == 1) mem.eraseError = true;
+    if (failure == 2) mem.error = true;
+    if (failure == 3) mem.incompleteErase = true;
+    if (failure == 4) mem.data[1024] ^= 1;
+    CHECK(store.retirePreviousAsync(completed, &callback));
+    unsigned services = 0;
+    const unsigned originalErases = mem.erases;
+    while (store.busy()) {
+      CHECK(++services < 1000);
+      store.service();
+      if (failure == 5 && mem.erases != originalErases) mem.readError = true;
+    }
+    CHECK(store.status() == Status::HardwareError);
+    CHECK(callback.calls == 1 && callback.result == Status::HardwareError);
+    store.service();
+    CHECK(callback.calls == 1);
+    if (failure == 0 || failure == 4) CHECK(mem.operations == retirementSeed().operations);
+  }
+}
+
 int main() {
+  retirement();
+  retirementPowerCuts();
+  retirementRejectionsAndErrors();
   bounds();
   d21Persistence();
   d21PowerCuts();

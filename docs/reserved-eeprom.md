@@ -48,6 +48,14 @@ Each commit reuses the next record, erases its rows, writes the payload, then wr
 
 Each physical page is programmed once after erase, at most four page programs per row. This stays below the D21 limit of eight consecutive writes per row. Unchanged data does not erase or program. `valid()` means a matching, checksum-valid snapshot has been recovered or committed. With no valid snapshot, the working buffer starts at 0xFF. Keep partition layout, logical capacity, and record format stable across firmware versions; changing them is a data migration, not an automatic reinterpretation.
 
+## Retiring older D21 snapshots
+
+`retirePreviousAsync(callback, context)` verifies the active snapshot, then erases and verifies the header row of every other snapshot. It leaves the active record and other partitions untouched. Completion uses the same `service()`, `busy()`, status, and callback contract as `commitAsync`. Unopened, empty, busy, and SmartEEPROM stores reject the request. Already blank header rows do not incur another erase.
+
+Use this operation when old metadata must never become authoritative again. For example, commit revocation of an application's trusted-image status, complete retirement, and only then permit that image to be overwritten. Repeat retirement before granting that permission after a reset, including when the revocation record itself is unchanged. A failed or interrupted retirement never grants permission to overwrite the image.
+
+Retirement temporarily leaves one valid snapshot. If that record later becomes corrupt, reopening returns no valid snapshot instead of resurrecting older metadata. Ordinary commits still rotate through the partition and retain previous snapshots. Retirement does not erase an application image or define its boot policy.
+
 ## SmartEEPROM durability
 
 Partition offset, partition size, and logical capacity must be multiples of four bytes. Logical capacity must fit within the configured virtual region. Service compares the working buffer with hardware and programs only changed 32-bit words. Completion requires a fresh write-completed flag, no hardware error/overflow, and the controller no longer busy. Hardware manages physical wear leveling.
@@ -63,7 +71,7 @@ sh tests/reserved/run.sh
 sh tests/reserved/compile.sh
 ```
 
-The native runner uses a compiler with address/undefined-behavior sanitizers (`c++` by default, `CXX` override). It exercises the actual portable engine, including 5,140 D21 interrupted erase/program prefixes, circular reuse, checksum corruption, bounds, no-change commits, callback completion, and SmartEEPROM partial updates. Register-adapter tests cover D21 configuration/erase/error restoration and both E5x register APIs, including fresh completion flags, busy states, capacity tables, configuration rejection, and overflow. The D21 native register test does not execute page-buffer stores to a real flash address.
+The native runner uses a compiler with address/undefined-behavior sanitizers (`c++` by default, `CXX` override). It exercises the actual portable engine, including 5,140 D21 interrupted erase/program prefixes and 771 retirement erase prefixes, circular reuse, checksum corruption, bounds, no-change commits, callback completion, and SmartEEPROM partial updates. Register-adapter tests cover D21 configuration/erase/error restoration and both E5x register APIs, including fresh completion flags, busy states, capacity tables, configuration rejection, and overflow. The D21 native register test does not execute page-buffer stores to a real flash address.
 
 The compile runner uses installed PlatformIO compiler/CMSIS packages, with `PLATFORMIO_PACKAGES_DIR` override. It compiles D21, D51, E53, and E54 against actual vendor headers. These checks do not prove silicon power-loss behavior, debugger reset behavior, or endurance. Hardware acceptance evidence belongs with the specific fixture and board configuration.
 
