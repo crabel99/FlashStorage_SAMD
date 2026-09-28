@@ -78,9 +78,23 @@ On September 28, 2026, an ATSAME54P20A connected through J-Link passed these che
 - The legacy flash API wrote and read back 16 bytes with both NVM caches initially enabled.
 - Thirty-two completed commits crossed seven observed active-sector changes. The final pattern survived reset.
 
-The complete original 1 MiB flash and 512-byte User Row were restored and verified byte for byte. These were debugger reset tests, not physical power-cut tests. D21 has native interruption tests and a compiled hardware fixture; trim-wheel hardware acceptance remains pending. E53 and D51 have compilation and register-model coverage, not separate silicon acceptance.
+The complete original 1 MiB flash and 512-byte User Row were restored and verified byte for byte. These were debugger reset tests, not physical power-cut tests. E53 and D51 have compilation and register-model coverage, not separate silicon acceptance.
 
 The local fixture and evidence are under `SimIODevice/build/reserved-eeprom-hardware/`. The tested E54 firmware SHA-256 is `48888108c6a769c40022a5be897bc5ae90d978a98663a5302d2982c0a9ed32fe`.
+
+## D21 hardware acceptance
+
+On September 28, 2026, the SAMD21E18 trim wheel passed these checks through J-Link:
+
+- Disabled EEPROM returned `Unconfigured`. An 8 KiB reservation opened after a masked User Row update that preserved every other bit.
+- A 128-byte asynchronous commit survived reset and a fresh read. Bounds checks and rejection of mutations during a pending commit passed.
+- A hardware breakpoint stopped a commit after both payload pages were written but before its validity header. Flash readback confirmed the new payload and erased header. Reset recovered the previous complete record.
+- Forty completed commits wrapped the 32-record ring. All 32 retained records had valid header and payload CRCs and the expected payload. Reset selected the newest record.
+- Flash between `0x2000` and `0x3E000` remained identical to the backup. The diagnostic image occupied the lower region; the EEPROM reservation occupied the upper region.
+
+The complete original 256 KiB flash and 64-byte User Row were restored and verified byte for byte. The interruption test used a debugger reset between NVM commands, not a physical power cut during programming. Native tests cover interrupted erase/program prefixes.
+
+The local fixture and evidence are under `SimIODevice/build/reserved-eeprom-hardware/d21/`. The tested D21 firmware SHA-256 is `edc218e20690d4129bed33007a02e2aadd8d0c31ded76317d509af7e79a405cd`.
 
 ## References
 
