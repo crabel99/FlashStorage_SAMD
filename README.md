@@ -1,5 +1,7 @@
 # FlashStorage_SAMD library for Arduino
 
+This fork adds [reserved EEPROM storage](docs/reserved-eeprom.md) for the D21 EEPROM fuse region and D51/E5x SmartEEPROM. Include `ReservedEEPROM.h` to use it. The existing EEPROM API is unchanged.
+
 [![arduino-library-badge](https://www.ardu-badge.com/badge/FlashStorage_SAMD.svg?)](https://www.ardu-badge.com/FlashStorage_SAMD)
 [![GitHub release](https://img.shields.io/github/release/khoih-prog/FlashStorage_SAMD.svg)](https://github.com/khoih-prog/FlashStorage_SAMD/releases)
 [![GitHub](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/khoih-prog/FlashStorage_SAMD/blob/master/LICENSE)

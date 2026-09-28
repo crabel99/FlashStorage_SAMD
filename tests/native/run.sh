@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
-build_dir=$(mktemp -d "${TMPDIR:-/tmp}/flashstorage-native.XXXXXX")
-trap 'rm -rf "$build_dir"' EXIT
+build_dir="$repo_dir/build/native"
+mkdir -p "$build_dir"
+export TMPDIR="$build_dir"
 compiler=${CXX:-g++-15}
 failed=0
 for branch in same54_regs samd51_bitfields; do
