@@ -431,6 +431,7 @@ static void retirementRejectionsAndErrors() {
 }
 
 
+#if !defined(__SAMD21__)
 static const unsigned smartOffset = 256;
 static const unsigned smartCapacity = 640;
 static const unsigned smartStride = smartCapacity + 20;
@@ -719,13 +720,33 @@ static void smartRetirement() {
   }
 }
 
+#else
+static void rejectsUnsupportedSmartSnapshots() {
+  Memory smart(true);
+  uint8_t ram[640];
+  ReservedEEPROMCore store(smart);
+  CHECK(store.beginAtomicSnapshots(0, 2048, ram, sizeof(ram)) == Status::InvalidConfiguration);
+  CHECK(!store.atomicSnapshotsEnabled() && !store.commitAsync() && smart.operations == 0);
+  Memory d21;
+  ReservedEEPROMCore snapshots(d21);
+  CHECK(snapshots.beginAtomicSnapshots(0, 2048, ram, sizeof(ram)) == Status::Ready);
+  CHECK(snapshots.atomicSnapshotsEnabled());
+  fill(snapshots, 42); commit(snapshots);
+  CHECK(snapshots.valid() && pattern(snapshots, 42));
+}
+#endif
+
 int main() {
+#if !defined(__SAMD21__)
   smartSnapshotBoundsAndPersistence();
   smartSnapshotPowerCuts();
   smartSnapshotCorruption();
   smartSnapshotFailures();
   smartRetirement();
   smartSequenceWrap();
+#else
+  rejectsUnsupportedSmartSnapshots();
+#endif
   retirement();
   retirementPowerCuts();
   retirementRejectionsAndErrors();

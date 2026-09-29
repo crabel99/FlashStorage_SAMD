@@ -72,10 +72,12 @@ private:
     if (bytes > available || !bytes || capacity > bytes)
       return status_ = ReservedEEPROMStatus::OutOfRange;
     atomicSmart_ = geometry_.smart && atomicSnapshots;
+    if (atomicSmart_ && !atomicSmart())
+      return status_ = ReservedEEPROMStatus::InvalidConfiguration;
     if (geometry_.smart) {
       if ((offset & 3u) || (capacity & 3u) || (bytes & 3u))
         return status_ = ReservedEEPROMStatus::InvalidConfiguration;
-      if (atomicSmart_) {
+      if (atomicSmart()) {
         if (capacity > UINT32_MAX - 20u)
           return status_ = ReservedEEPROMStatus::InvalidConfiguration;
         stride_ = capacity + 20u;
@@ -197,11 +199,13 @@ public:
         return;
       }
       case Phase::Invalidate:
+        if (!atomicSmart()) { hardwareError(); return; }
         store32(data, 0);
         if (!backend_.program(recordAddress(target_), data, 4)) { hardwareError(); return; }
         waitFor(Phase::InvalidateVerify);
         return;
       case Phase::InvalidateVerify:
+        if (!atomicSmart()) { hardwareError(); return; }
         if (!backend_.readBytes(recordAddress(target_), data, 4) || load32(data) != 0) {
           hardwareError(); return;
         }
@@ -216,7 +220,7 @@ public:
         } else waitFor(Phase::Erase);
         return;
       case Phase::Payload: {
-        const uint32_t unit = atomicSmart_ ? 4 : 64;
+        const uint32_t unit = atomicSmart() ? 4 : 64;
         const uint32_t count = minimum(unit, capacity_ - cursor_);
         memset(data, 0xff, sizeof(data));
         memcpy(data, buffer_ + cursor_, count);
@@ -225,7 +229,7 @@ public:
         }
         cursor_ += count;
         if (cursor_ == capacity_) {
-          cursor_ = atomicSmart_ ? 4 : 0;
+          cursor_ = atomicSmart() ? 4 : 0;
           waitFor(Phase::Header);
         } else waitFor(Phase::Payload);
         return;
@@ -237,7 +241,7 @@ public:
         store32(data + 8, capacity_);
         store32(data + 12, crc(buffer_, capacity_));
         store32(data + 16, crc(data, 16));
-        if (atomicSmart_) {
+        if (atomicSmart()) {
           if (!backend_.program(recordAddress(target_) + cursor_, data + cursor_, 4)) {
             hardwareError(); return;
           }
@@ -249,14 +253,15 @@ public:
         }
         return;
       case Phase::Marker:
+        if (!atomicSmart()) { hardwareError(); return; }
         store32(data, marker());
         if (!backend_.program(recordAddress(target_), data, 4)) { hardwareError(); return; }
         waitFor(Phase::Verify);
         return;
       case Phase::Verify: {
         uint32_t sequence = 0;
-        if (!recordValid(target_, sequence, atomicSmart_) ||
-            (atomicSmart_ && sequence != (valid_ ? sequence_ + 1u : 0u))) {
+        if (!recordValid(target_, sequence, atomicSmart()) ||
+            (atomicSmart() && sequence != (valid_ ? sequence_ + 1u : 0u))) {
           hardwareError(); return;
         }
         active_ = target_;
@@ -274,7 +279,7 @@ public:
       case Phase::RetireScan:
         if (target_ == records_) { finish(ReservedEEPROMStatus::Ready); return; }
         if (target_ == active_) { ++target_; return; }
-        if (atomicSmart_) {
+        if (atomicSmart()) {
           if (!backend_.readBytes(recordAddress(target_), data, 4)) { hardwareError(); return; }
           if (load32(data) == 0 || load32(data) == UINT32_MAX) ++target_;
           else phase_ = Phase::RetireErase;
@@ -290,7 +295,7 @@ public:
         if (cursor_ == geometry_.rowBytes) { ++target_; cursor_ = 0; }
         return;
       case Phase::RetireErase:
-        if (atomicSmart_) {
+        if (atomicSmart()) {
           store32(data, 0);
           if (!backend_.program(recordAddress(target_), data, 4)) { hardwareError(); return; }
         } else if (!backend_.erase(recordAddress(target_))) { hardwareError(); return; }
@@ -298,7 +303,7 @@ public:
         waitFor(Phase::RetireVerify);
         return;
       case Phase::RetireVerify:
-        if (atomicSmart_) {
+        if (atomicSmart()) {
           if (!backend_.readBytes(recordAddress(target_), data, 4) || load32(data) != 0) {
             hardwareError(); return;
           }
@@ -347,8 +352,16 @@ private:
     return extendCRC(0xffffffffu, p, bytes) ^ 0xffffffffu;
   }
   uint32_t recordAddress(uint32_t index) const { return offset_ + index * stride_; }
-  bool snapshots() const { return !geometry_.smart || atomicSmart_; }
-  uint32_t payloadOffset() const { return atomicSmart_ ? 20 : 64; }
+  bool atomicSmart() const {
+#if defined(__SAMD21__) || defined(__ARM_ARCH_6M__)
+    // D21's boot partition must not retain the unsupported SmartEEPROM phases.
+    return false;
+#else
+    return atomicSmart_;
+#endif
+  }
+  bool snapshots() const { return !geometry_.smart || atomicSmart(); }
+  uint32_t payloadOffset() const { return atomicSmart() ? 20 : 64; }
   bool recordValid(uint32_t index, uint32_t& sequence, bool matchBuffer = false) {
     uint8_t header[20];
     if (!backend_.readBytes(recordAddress(index), header, sizeof(header))) { readFailed_ = true; return false; }
@@ -381,7 +394,7 @@ private:
     return status_ = ReservedEEPROMStatus::HardwareError;
   }
   void finishComparison() {
-    if (atomicSmart_) {
+    if (atomicSmart()) {
       uint32_t sequence = 0;
       if (!recordValid(active_, sequence, true) || sequence != sequence_) {
         hardwareError(); return;
@@ -392,7 +405,7 @@ private:
   void startSnapshot() {
     target_ = valid_ ? (active_ + 1) % records_ : 0;
     cursor_ = 0;
-    phase_ = atomicSmart_ ? Phase::Invalidate : Phase::Erase;
+    phase_ = atomicSmart() ? Phase::Invalidate : Phase::Erase;
   }
   void waitFor(Phase next) { afterWait_ = next; phase_ = Phase::Wait; }
   void hardwareError() { finish(ReservedEEPROMStatus::HardwareError); }
