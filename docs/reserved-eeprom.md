@@ -38,7 +38,7 @@ The normal reset clock configuration enables the necessary NVM clocks. Callers t
 
 Only one caller may own and service an object, and only one NVM operation may run on the MCU at a time. Do not call from interrupts or concurrently use other NVM writers, including legacy FlashStorage. Multiple nonoverlapping partitions are permitted when their operations are serialized by the caller. No interrupts or framework ownership mechanisms are installed.
 
-`begin` reads/scans existing storage synchronously. It does not erase or program. If the peripheral is busy at entry, it returns `Busy`; call begin again later. Service advances one command, completion check, or bounded comparison step; it does not spin waiting for hardware. D21 snapshot verification and CRC calculation are bounded by the configured capacity. **D21 instruction fetches from flash can still stall while flash is erased/programmed.** An asynchronous API does not provide read-while-write hardware.
+`begin` and `beginAtomicSnapshots` read or scan existing storage synchronously. It does not erase or program. If the peripheral is busy at entry, it returns `Busy`; call begin again later. Service advances one command, completion check, or bounded comparison step; it does not spin waiting for hardware. Snapshot verification and CRC calculation are bounded by the configured capacity. **D21 instruction fetches from flash can still stall while flash is erased/programmed.** An asynchronous API does not provide read-while-write hardware.
 
 ## D21 durability and capacity
 
@@ -50,28 +50,52 @@ Each physical page is programmed once after erase, at most four page programs pe
 
 ## Retiring older D21 snapshots
 
-`retirePreviousAsync(callback, context)` verifies the active snapshot, then erases and verifies the header row of every other snapshot. It leaves the active record and other partitions untouched. Completion uses the same `service()`, `busy()`, status, and callback contract as `commitAsync`. Unopened, empty, busy, and SmartEEPROM stores reject the request. Already blank header rows do not incur another erase.
+`retirePreviousAsync(callback, context)` verifies the active snapshot, then erases and verifies the header row of every other snapshot. It leaves the active record and other partitions untouched. Completion uses the same `service()`, `busy()`, status, and callback contract as `commitAsync`. Unopened, empty, busy, and default in-place SmartEEPROM stores reject the request. SmartEEPROM stores opened with `beginAtomicSnapshots` use logical marker retirement as described below. Already blank header rows do not incur another erase.
 
 Use this operation when old metadata must never become authoritative again. For example, commit revocation of an application's trusted-image status, complete retirement, and only then permit that image to be overwritten. Repeat retirement before granting that permission after a reset, including when the revocation record itself is unchanged. A failed or interrupted retirement never grants permission to overwrite the image.
 
 Retirement temporarily leaves one valid snapshot. If that record later becomes corrupt, reopening returns no valid snapshot instead of resurrecting older metadata. Ordinary commits still rotate through the partition and retain previous snapshots. Retirement does not erase an application image or define its boot policy.
 
-## SmartEEPROM durability
+## Default SmartEEPROM durability
 
 Partition offset, partition size, and logical capacity must be multiples of four bytes. Logical capacity must fit within the configured virtual region. Service compares the working buffer with hardware and programs only changed 32-bit words. Completion requires a fresh write-completed flag, no hardware error/overflow, and the controller no longer busy. Hardware manages physical wear leveling.
 
-**A multiword commit is not atomic.** Power loss can leave some words updated and others unchanged. Use redundant application records with integrity checks for boot metadata or other data that must change atomically. This library supplies EEPROM storage, not a boot policy. `valid()` on SmartEEPROM means the configured virtual storage opened successfully; erased 0xFF bytes are valid EEPROM contents. It is not a checksum assertion about application data.
+**A multiword commit is not atomic.** Power loss can leave some words updated and others unchanged. Use `beginAtomicSnapshots` for boot metadata or other data that must change atomically. This library supplies EEPROM storage, not a boot policy. `valid()` on SmartEEPROM means the configured virtual storage opened successfully; erased 0xFF bytes are valid EEPROM contents. It is not a checksum assertion about application data.
 
 Unbuffered mode avoids the restrictions in E5x errata section 2.14.2. Buffered mode requires strictly linear writes and no reads of the page being modified, including debugger reads. The library rejects it rather than silently changing a controller mode that might affect existing data.
+
+## Atomic SmartEEPROM snapshots
+
+`beginAtomicSnapshots(offset, partitionBytes, workingBuffer, capacity)` explicitly opens a snapshot partition. Its arguments, buffer ownership, and asynchronous commit contract match `begin`. On D21 it uses the existing record format and behavior. On SmartEEPROM it uses a separate layout from the default in-place store. Changing between these layouts requires an application data migration. `atomicSnapshotsEnabled()` is true after a successful open on D21 or in this opt-in SmartEEPROM mode. It is false before initialization, after a failed open, and for default in-place SmartEEPROM. Callers can use it to reject stores that do not provide atomic records.
+
+SmartEEPROM snapshot offsets, partition sizes, and capacities are multiples of four bytes. Each record has a 20-byte header followed by the complete payload. At least two records must fit. A 640-byte payload uses 660 bytes per record, so two records require 1,320 logical bytes. A 4 KiB partition holds six such records and leaves 136 bytes unused. All operations stay inside the partition. No heap allocation or physical SmartEEPROM erase is used.
+
+The five little-endian header words are the `REP1` format marker, wrapping sequence number, payload length, payload CRC-32, and CRC-32 of the first four header words. Startup checks both CRCs and the exact payload length, then selects the newest valid sequence. With no valid snapshot, `valid()` is false and the buffer starts at `0xFF`.
+
+A changed commit rotates to the next record and completes these steps:
+
+1. Write zero to the destination marker, wait for durable completion, and read back zero.
+2. Write the payload and the remaining four header words through aligned 32-bit operations. Wait for each operation to complete.
+3. Write the `REP1` marker last and wait for durable completion.
+4. Read the complete record again. Require valid CRCs, the expected sequence, and an exact match to the requested payload before reporting `Ready`.
+
+An unchanged commit performs no writes and revalidates the active record before reporting `Ready`. Submission errors, completion errors, and failed readback complete the callback exactly once with `HardwareError`. A failed completion does not authorize an application action, even if a fresh scan can recover the new record after reset.
+
+`retirePreviousAsync` verifies the active record, then writes zero to every other nonblank, nonzero record marker. Each write completes durably and reads back as zero before retirement advances. Other header words, payloads, and partitions remain unchanged. Blank or already retired markers incur no write. An interrupted retirement can be repeated after a fresh scan.
+
+For boot metadata, the caller commits its Writing or trust-revocation state, completes retirement, and only then grants permission to erase or reuse the application slot. Every resumed erase grant repeats retirement, including when committing the same state required no write. If the newest record later becomes corrupt, a completed retirement prevents fallback to an older trusted identity. The library does not supply the boot-state policy or grant erase permission itself.
+
+The fault model assumes each completed unbuffered write remains durable and an interrupted write affects only the addressed logical word. Native tests cover partial words, including partial commit and retirement markers. They do not establish behavior under corruption of the SmartEEPROM controller's physical remapping metadata. Physical power-cut validation on E54 remains required. The existing hardware backend owns unbuffered completion and automatic reallocation. This mode neither erases backing flash nor changes controller configuration.
 
 ## Verification
 
 ```sh
 sh tests/reserved/run.sh
 sh tests/reserved/compile.sh
+bash tests/native/run.sh
 ```
 
-The native runner uses a compiler with address/undefined-behavior sanitizers (`c++` by default, `CXX` override). It exercises the actual portable engine, including 5,140 D21 interrupted erase/program prefixes and 771 retirement erase prefixes, circular reuse, checksum corruption, bounds, no-change commits, callback completion, and SmartEEPROM partial updates. Register-adapter tests cover D21 configuration/erase/error restoration and both E5x register APIs, including fresh completion flags, busy states, capacity tables, configuration rejection, and overflow. The D21 native register test does not execute page-buffer stores to a real flash address.
+The native runner uses a compiler with address/undefined-behavior sanitizers (`c++` by default, `CXX` override). It exercises the actual portable engine, including 5,140 D21 interrupted erase/program prefixes and 771 retirement erase prefixes, circular reuse, checksum corruption, bounds, no-change commits, callback completion, and default SmartEEPROM partial updates. Atomic SmartEEPROM tests use 640-byte payloads and cover 3,320 interrupted write prefixes, 15 retirement prefixes, ring reuse, every header and payload byte corrupted in the newest record, no-change commits, stale-record retirement, and submission, poll, and readback failures with exactly-once callback delivery. Register-adapter tests cover D21 configuration/erase/error restoration and both E5x register APIs, including fresh completion flags, busy states, capacity tables, configuration rejection, and overflow. The D21 native register test does not execute page-buffer stores to a real flash address.
 
 The compile runner uses installed PlatformIO compiler/CMSIS packages, with `PLATFORMIO_PACKAGES_DIR` override. It compiles D21, D51, E53, and E54 against actual vendor headers. These checks do not prove silicon power-loss behavior, debugger reset behavior, or endurance. Hardware acceptance evidence belongs with the specific fixture and board configuration.
 

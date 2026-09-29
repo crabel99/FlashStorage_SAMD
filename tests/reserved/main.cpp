@@ -21,6 +21,9 @@ public:
   std::vector<unsigned> rowPrograms;
   unsigned programs = 0, erases = 0, operations = 0, delay = 0;
   int cutOperation = -1;
+  int failProgramOperation = -1;
+  int incompleteProgramOperation = -1;
+  int pollErrorOperation = -1;
   unsigned prefix = 0;
   Status configuration = Status::Ready;
   bool error = false;
@@ -54,9 +57,11 @@ public:
   bool program(uint32_t offset, const uint8_t* src, uint32_t count) override {
     CHECK(!delay && offset + count <= data.size());
     CHECK(smart ? count == 4 && offset % 4 == 0 : count == 64 && offset % 64 == 0);
+    if (int(operations) == failProgramOperation) return false;
+    const bool incomplete = int(operations) == incompleteProgramOperation;
     ++programs;
     const bool cut = int(operations++) == cutOperation;
-    const unsigned n = cut ? std::min(prefix, count) : count;
+    const unsigned n = incomplete ? 0 : cut ? std::min(prefix, count) : count;
     for (unsigned i = 0; i < n; ++i) {
       if (!smart) CHECK((data[offset + i] & src[i]) == src[i]);
       data[offset + i] = src[i];
@@ -69,7 +74,7 @@ public:
   Status poll() override {
     CHECK(delay);
     if (--delay) return Status::Busy;
-    return error ? Status::HardwareError : Status::Ready;
+    return error || int(operations - 1) == pollErrorOperation ? Status::HardwareError : Status::Ready;
   }
 };
 
@@ -263,7 +268,7 @@ static void smartEEPROM() {
   mem.configuration = Status::Ready;
   CHECK(store.begin(0, 0, ram, 127) == Status::InvalidConfiguration);
   CHECK(store.begin(4096, 4096, ram, sizeof(ram)) == Status::Ready);
-  CHECK(store.valid());
+  CHECK(store.valid() && !store.atomicSnapshotsEnabled());
   commit(store);
   CHECK(mem.programs == 0);
   CHECK(store.write(0, 1) && store.write(1, 2) && store.write(127, 3));
@@ -425,7 +430,302 @@ static void retirementRejectionsAndErrors() {
   }
 }
 
+
+static const unsigned smartOffset = 256;
+static const unsigned smartCapacity = 640;
+static const unsigned smartStride = smartCapacity + 20;
+
+static void openSmart(ReservedEEPROMCore& store, uint8_t* ram, unsigned records = 2) {
+  CHECK(store.beginAtomicSnapshots(smartOffset, records * smartStride, ram, smartCapacity) == Status::Ready);
+}
+
+static Memory smartSeed(unsigned generations, unsigned records = 2) {
+  Memory mem(true);
+  uint8_t ram[smartCapacity];
+  ReservedEEPROMCore store(mem);
+  openSmart(store, ram, records);
+  CHECK(!store.valid() && !store.retirePreviousAsync());
+  for (unsigned generation = 1; generation <= generations; ++generation) {
+    fill(store, uint8_t(generation));
+    commit(store);
+  }
+  return mem;
+}
+
+static void smartSnapshotBoundsAndPersistence() {
+  Memory mem(true);
+  uint8_t ram[smartCapacity];
+  ReservedEEPROMCore store(mem);
+  CHECK(store.beginAtomicSnapshots(1, 2048, ram, sizeof(ram)) == Status::InvalidConfiguration);
+  CHECK(store.beginAtomicSnapshots(0, 2048, ram, 639) == Status::InvalidConfiguration);
+  CHECK(store.beginAtomicSnapshots(0, 1320, ram, sizeof(ram)) == Status::Ready);
+  CHECK(store.beginAtomicSnapshots(0, 1316, ram, sizeof(ram)) == Status::InvalidConfiguration);
+  CHECK(!store.commitAsync() && !store.atomicSnapshotsEnabled());
+  openSmart(store, ram);
+  CHECK(!store.valid() && store.length() == sizeof(ram) && store.atomicSnapshotsEnabled());
+  for (unsigned generation = 1; generation <= 12; ++generation) {
+    fill(store, uint8_t(generation));
+    Callback callback;
+    CHECK(store.commitAsync(completed, &callback));
+    CHECK(!store.commitAsync() && !store.retirePreviousAsync() && !store.update(0, 0));
+    CHECK(store.beginAtomicSnapshots(0, 0, ram, sizeof(ram)) == Status::Busy);
+    while (store.busy()) {
+      CHECK(callback.calls == 0);
+      store.service();
+    }
+    CHECK(callback.calls == 1 && callback.result == Status::Ready);
+    store.service();
+    CHECK(callback.calls == 1);
+    uint8_t recovered[smartCapacity];
+    ReservedEEPROMCore reboot(mem);
+    openSmart(reboot, recovered);
+    CHECK(reboot.valid() && pattern(reboot, uint8_t(generation)));
+    const unsigned operations = mem.operations;
+    CHECK(reboot.commitAsync(completed, &callback));
+    CHECK(callback.calls == 1);
+    finish(reboot);
+    CHECK(callback.calls == 2 && callback.result == Status::Ready);
+    CHECK(mem.operations == operations && mem.erases == 0);
+  }
+  CHECK(std::all_of(mem.data.begin(), mem.data.begin() + smartOffset, [](uint8_t b) { return b == 0xff; }));
+  CHECK(std::all_of(mem.data.begin() + smartOffset + 2 * smartStride, mem.data.end(), [](uint8_t b) { return b == 0xff; }));
+
+  Memory d21;
+  ReservedEEPROMCore existing(d21);
+  CHECK(existing.beginAtomicSnapshots(0, 1536, ram, sizeof(ram)) == Status::Ready);
+  fill(existing, 6); commit(existing);
+  ReservedEEPROMCore defaultAPI(d21);
+  CHECK(defaultAPI.begin(0, 1536, ram, sizeof(ram)) == Status::Ready);
+  CHECK(defaultAPI.valid() && pattern(defaultAPI, 6) && defaultAPI.atomicSnapshotsEnabled());
+}
+
+static void smartSnapshotPowerCuts() {
+  unsigned cuts = 0;
+  for (unsigned previous = 0; previous < 4; ++previous) {
+    const Memory base = smartSeed(previous);
+    const unsigned start = base.operations;
+    Memory complete = base;
+    uint8_t ram[smartCapacity];
+    ReservedEEPROMCore full(complete);
+    openSmart(full, ram);
+    fill(full, 99); commit(full);
+    CHECK(complete.operations - start == smartCapacity / 4 + 6);
+    for (unsigned operation = start; operation < complete.operations; ++operation) {
+      for (unsigned prefix = 0; prefix <= 4; ++prefix) {
+        Memory mem = base;
+        mem.cutOperation = int(operation);
+        mem.prefix = prefix;
+        ReservedEEPROMCore interrupted(mem);
+        openSmart(interrupted, ram);
+        fill(interrupted, 99);
+        Callback callback;
+        CHECK(interrupted.commitAsync(completed, &callback));
+        try { finish(interrupted); CHECK(false); } catch (const Cut&) {}
+        CHECK(callback.calls == 0);
+        mem.delay = 0;
+        mem.cutOperation = -1;
+        ReservedEEPROMCore reboot(mem);
+        openSmart(reboot, ram);
+        if (previous) CHECK(reboot.valid() && (pattern(reboot, uint8_t(previous)) || pattern(reboot, 99)));
+        else CHECK(!reboot.valid() || pattern(reboot, 99));
+        fill(reboot, 100); commit(reboot);
+        ReservedEEPROMCore retry(mem);
+        openSmart(retry, ram);
+        CHECK(retry.valid() && pattern(retry, 100) && mem.erases == 0);
+        ++cuts;
+      }
+    }
+  }
+  std::printf("SmartEEPROM snapshot word-write prefixes checked: %u\n", cuts);
+}
+
+static void smartSnapshotCorruption() {
+  const Memory base = smartSeed(2);
+  uint8_t ram[smartCapacity];
+  for (unsigned byte = 0; byte < smartStride; ++byte) {
+    Memory mem = base;
+    mem.data[smartOffset + smartStride + byte] ^= 1;
+    ReservedEEPROMCore reboot(mem);
+    openSmart(reboot, ram);
+    CHECK(reboot.valid() && pattern(reboot, 1));
+  }
+  Memory mem = base;
+  ReservedEEPROMCore live(mem);
+  openSmart(live, ram);
+  mem.data[smartOffset + smartStride] ^= 1;
+  Callback callback;
+  CHECK(live.commitAsync(completed, &callback));
+  while (live.busy()) live.service();
+  CHECK(callback.calls == 1 && callback.result == Status::HardwareError);
+  CHECK(mem.operations == base.operations);
+}
+
+static void smartSnapshotFailures() {
+  const Memory base = smartSeed(2);
+  const unsigned count = smartCapacity / 4 + 6;
+  uint8_t ram[smartCapacity];
+  for (unsigned failure = 0; failure < 3; ++failure) {
+    for (unsigned operation = base.operations; operation < base.operations + count; ++operation) {
+      Memory mem = base;
+      if (failure == 0) mem.failProgramOperation = int(operation);
+      if (failure == 1) mem.pollErrorOperation = int(operation);
+      if (failure == 2) mem.incompleteProgramOperation = int(operation);
+      ReservedEEPROMCore store(mem);
+      openSmart(store, ram);
+      fill(store, 99);
+      Callback callback;
+      CHECK(store.commitAsync(completed, &callback));
+      while (store.busy()) store.service();
+      const bool unchangedLength = failure == 2 && operation == base.operations + smartCapacity / 4 + 2;
+      CHECK(callback.calls == 1 && callback.result == (unchangedLength ? Status::Ready : Status::HardwareError));
+      store.service();
+      CHECK(callback.calls == 1);
+      mem.delay = 0;
+      mem.failProgramOperation = mem.pollErrorOperation = mem.incompleteProgramOperation = -1;
+      ReservedEEPROMCore reboot(mem);
+      openSmart(reboot, ram);
+      CHECK(reboot.valid() && (pattern(reboot, 2) || pattern(reboot, 99)));
+      if (failure == 1 && operation == base.operations + count - 1) CHECK(pattern(reboot, 99));
+    }
+  }
+  for (unsigned operation = base.operations; operation <= base.operations + count; ++operation) {
+    Memory mem = base;
+    ReservedEEPROMCore store(mem);
+    openSmart(store, ram);
+    fill(store, 99);
+    Callback callback;
+    CHECK(store.commitAsync(completed, &callback));
+    while (store.busy()) {
+      if (mem.operations == operation) mem.readError = true;
+      store.service();
+    }
+    CHECK(callback.calls == 1 && callback.result == Status::HardwareError);
+    store.service();
+    CHECK(callback.calls == 1);
+  }
+  Memory failed = base;
+  failed.readError = true;
+  ReservedEEPROMCore unopened(failed);
+  CHECK(unopened.beginAtomicSnapshots(smartOffset, 2 * smartStride, ram, sizeof(ram)) == Status::HardwareError);
+  CHECK(!unopened.valid() && !unopened.atomicSnapshotsEnabled() && !unopened.commitAsync() && !unopened.retirePreviousAsync());
+}
+
+static void smartSequenceWrap() {
+  Memory mem = smartSeed(2);
+  for (unsigned i = 4; i < 8; ++i) mem.data[smartOffset + i] = 0xff;
+  uint32_t crc = 0xffffffffu;
+  for (unsigned i = 0; i < 16; ++i) {
+    crc ^= mem.data[smartOffset + i];
+    for (unsigned bit = 0; bit < 8; ++bit)
+      crc = (crc >> 1) ^ ((crc & 1u) ? 0xedb88320u : 0u);
+  }
+  crc ^= 0xffffffffu;
+  for (unsigned i = 0; i < 4; ++i) mem.data[smartOffset + 16 + i] = uint8_t(crc >> (8 * i));
+  std::fill(mem.data.begin() + smartOffset + smartStride,
+            mem.data.begin() + smartOffset + 2 * smartStride, 0xff);
+  uint8_t ram[smartCapacity];
+  ReservedEEPROMCore before(mem);
+  openSmart(before, ram);
+  CHECK(before.valid() && pattern(before, 1));
+  fill(before, 3); commit(before);
+  ReservedEEPROMCore after(mem);
+  openSmart(after, ram);
+  CHECK(after.valid() && pattern(after, 3));
+  CHECK(after.retirePreviousAsync()); finish(after);
+  mem.data[smartOffset + smartStride] ^= 1;
+  ReservedEEPROMCore corrupted(mem);
+  openSmart(corrupted, ram);
+  CHECK(!corrupted.valid());
+}
+
+static void smartRetirement() {
+  const Memory base = smartSeed(10, 4);
+  uint8_t ram[smartCapacity];
+  unsigned cuts = 0;
+  for (unsigned operation = 0; operation < 3; ++operation) {
+    for (unsigned prefix = 0; prefix <= 4; ++prefix) {
+      Memory mem = base;
+      mem.cutOperation = int(base.operations + operation);
+      mem.prefix = prefix;
+      ReservedEEPROMCore store(mem);
+      openSmart(store, ram, 4);
+      Callback callback;
+      CHECK(store.retirePreviousAsync(completed, &callback));
+      CHECK(!store.retirePreviousAsync() && !store.commitAsync() && !store.update(0, 0));
+      try { finish(store); CHECK(false); } catch (const Cut&) {}
+      CHECK(callback.calls == 0);
+      mem.delay = 0;
+      mem.cutOperation = -1;
+      ReservedEEPROMCore reboot(mem);
+      openSmart(reboot, ram, 4);
+      CHECK(reboot.valid() && pattern(reboot, 10));
+      const unsigned beforeReplay = mem.operations;
+      commit(reboot);
+      CHECK(mem.operations == beforeReplay);
+      CHECK(reboot.retirePreviousAsync(completed, &callback));
+      finish(reboot);
+      CHECK(callback.calls == 1 && callback.result == Status::Ready);
+      const unsigned retired = mem.operations;
+      CHECK(reboot.retirePreviousAsync(completed, &callback));
+      finish(reboot);
+      CHECK(callback.calls == 2 && mem.operations == retired && mem.erases == 0);
+      for (unsigned record = 0; record < 4; ++record) {
+        const unsigned address = smartOffset + record * smartStride;
+        if (record != 1) {
+          CHECK(std::all_of(mem.data.begin() + address, mem.data.begin() + address + 4, [](uint8_t b) { return b == 0; }));
+        }
+        CHECK(std::equal(base.data.begin() + address + 4, base.data.begin() + address + smartStride, mem.data.begin() + address + 4));
+      }
+      CHECK(std::equal(base.data.begin(), base.data.begin() + smartOffset, mem.data.begin()));
+      CHECK(std::equal(base.data.begin() + smartOffset + 4 * smartStride, base.data.end(), mem.data.begin() + smartOffset + 4 * smartStride));
+      mem.data[smartOffset + smartStride + 20] ^= 1;
+      ReservedEEPROMCore corrupted(mem);
+      openSmart(corrupted, ram, 4);
+      CHECK(!corrupted.valid());
+      ++cuts;
+    }
+  }
+  std::printf("SmartEEPROM retirement word-write prefixes checked: %u\n", cuts);
+
+  for (unsigned failure = 0; failure < 5; ++failure) {
+    for (unsigned operation = 0; operation < 3; ++operation) {
+      Memory mem = base;
+      ReservedEEPROMCore store(mem);
+      openSmart(store, ram, 4);
+      const int failAt = int(base.operations + operation);
+      if (failure == 0) mem.failProgramOperation = failAt;
+      if (failure == 1) mem.pollErrorOperation = failAt;
+      if (failure == 2) mem.incompleteProgramOperation = failAt;
+      if (failure == 3) mem.readError = true;
+      Callback callback;
+      CHECK(store.retirePreviousAsync(completed, &callback));
+      while (store.busy()) {
+        store.service();
+        if (failure == 4 && mem.operations > unsigned(failAt)) mem.readError = true;
+      }
+      CHECK(callback.calls == 1 && callback.result == Status::HardwareError);
+      store.service();
+      CHECK(callback.calls == 1);
+      mem.readError = false;
+      mem.failProgramOperation = mem.pollErrorOperation = mem.incompleteProgramOperation = -1;
+      ReservedEEPROMCore resumed(mem);
+      openSmart(resumed, ram, 4);
+      CHECK(resumed.retirePreviousAsync()); finish(resumed);
+      mem.data[smartOffset + smartStride] ^= 1;
+      ReservedEEPROMCore corrupt(mem);
+      openSmart(corrupt, ram, 4);
+      CHECK(!corrupt.valid());
+    }
+  }
+}
+
 int main() {
+  smartSnapshotBoundsAndPersistence();
+  smartSnapshotPowerCuts();
+  smartSnapshotCorruption();
+  smartSnapshotFailures();
+  smartRetirement();
+  smartSequenceWrap();
   retirement();
   retirementPowerCuts();
   retirementRejectionsAndErrors();
