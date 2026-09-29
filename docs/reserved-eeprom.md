@@ -1,6 +1,6 @@
 # Reserved EEPROM storage
 
-`ReservedEEPROM.h` adds an explicit storage object for the D21 EEPROM fuse region and D51/E51/E53/E54 SmartEEPROM. It does not include the legacy `FlashStorage_SAMD` header, allocate storage inside the application image, change fuses, unlock memory, or implement boot selection. The existing library API remains unchanged.
+`ReservedEEPROM.h` adds an explicit storage object for the D21 EEPROM fuse region and D51/E51/E53/E54 SmartEEPROM. It does not include the legacy `FlashStorage_SAMD` header, allocate storage inside the application image, change fuses, unlock memory, or implement boot selection. The existing library API remains unchanged. The hardware adapter includes CMSIS `sam.h` directly and does not import Arduino or its USB stack.
 
 ```cpp
 #include <ReservedEEPROM.h>
@@ -97,7 +97,7 @@ bash tests/native/run.sh
 
 The native runner exercises both the portable core and its D21 build configuration. It uses a compiler with address/undefined-behavior sanitizers (`c++` by default, `CXX` override). It exercises the actual portable engine, including 5,140 D21 interrupted erase/program prefixes and 771 retirement erase prefixes, circular reuse, checksum corruption, bounds, no-change commits, callback completion, and default SmartEEPROM partial updates. Atomic SmartEEPROM tests use 640-byte payloads and cover 3,320 interrupted write prefixes, 15 retirement prefixes, ring reuse, every header and payload byte corrupted in the newest record, no-change commits, stale-record retirement, and submission, poll, and readback failures with exactly-once callback delivery. Register-adapter tests cover D21 configuration/erase/error restoration and both E5x register APIs, including fresh completion flags, busy states, capacity tables, configuration rejection, and overflow. The D21 native register test does not execute page-buffer stores to a real flash address.
 
-The compile runner uses installed PlatformIO compiler/CMSIS packages, with `PLATFORMIO_PACKAGES_DIR` override. It compiles D21, D51, E53, and E54 against actual vendor headers. These checks do not prove silicon power-loss behavior, debugger reset behavior, or endurance. Hardware acceptance evidence belongs with the specific fixture and board configuration.
+The compile runner uses installed PlatformIO compiler/CMSIS packages, with `PLATFORMIO_PACKAGES_DIR` override. It compiles D21, D51, E53, and E54 against actual vendor headers, rejects accidental Arduino dependencies in the standalone header, and compiles the EEPROM example against the installed Arduino framework. `ARDUINO_FRAMEWORK_DIR` overrides the default `framework-arduino-samd-simio` package. These checks do not prove silicon power-loss behavior, debugger reset behavior, or endurance. Hardware acceptance evidence belongs with the specific fixture and board configuration.
 
 ## E54 hardware acceptance
 

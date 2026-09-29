@@ -1,7 +1,7 @@
 #ifndef RESERVED_EEPROM_H
 #define RESERVED_EEPROM_H
 
-#include <Arduino.h>
+#include <sam.h>
 #include "ReservedEEPROMCore.h"
 
 #if defined(__SAMD51__) || defined(__SAME51__) || defined(__SAME53__) || defined(__SAME54__)
