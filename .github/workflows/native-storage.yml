@@ -1,0 +1,20 @@
+name: Native storage regressions
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Legacy NVM regression tests
+        env:
+          CXX: g++
+        run: bash tests/native/run.sh
+      - name: Reserved EEPROM regression tests
+        env:
+          CXX: g++
+        run: sh tests/reserved/run.sh

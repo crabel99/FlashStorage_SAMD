@@ -82,8 +82,22 @@ static inline bool flash_nvmctrl_done()
   return (NVMCTRL_REGS->NVMCTRL_INTFLAG & NVMCTRL_INTFLAG_DONE_Msk) != 0;
 }
 
+static inline uint32_t flash_nvmctrl_disable_cache()
+{
+  const uint32_t control = NVMCTRL_REGS->NVMCTRL_CTRLA;
+  NVMCTRL_REGS->NVMCTRL_CTRLA = control |
+      NVMCTRL_CTRLA_CACHEDIS0_Msk | NVMCTRL_CTRLA_CACHEDIS1_Msk;
+  return control;
+}
+
+static inline void flash_nvmctrl_restore_control(uint32_t control)
+{
+  NVMCTRL_REGS->NVMCTRL_CTRLA = control;
+}
+
 static inline void flash_nvmctrl_command(uint16_t command)
 {
+  NVMCTRL_REGS->NVMCTRL_INTFLAG = NVMCTRL_INTFLAG_DONE_Msk;
   NVMCTRL_REGS->NVMCTRL_CTRLB = NVMCTRL_CTRLB_CMDEX_KEY | command;
 }
 
@@ -117,8 +131,22 @@ static inline bool flash_nvmctrl_done()
   return NVMCTRL->INTFLAG.bit.DONE != 0;
 }
 
+static inline uint32_t flash_nvmctrl_disable_cache()
+{
+  const uint32_t control = NVMCTRL->CTRLA.reg;
+  NVMCTRL->CTRLA.reg = control |
+      NVMCTRL_CTRLA_CACHEDIS0 | NVMCTRL_CTRLA_CACHEDIS1;
+  return control;
+}
+
+static inline void flash_nvmctrl_restore_control(uint32_t control)
+{
+  NVMCTRL->CTRLA.reg = control;
+}
+
 static inline void flash_nvmctrl_command(uint16_t command)
 {
+  NVMCTRL->INTFLAG.reg = 1u; // DONE is write-one-to-clear; preserve other flags.
   NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | command;
 }
 
@@ -134,7 +162,7 @@ FlashClass::FlashClass(const void *flash_addr, uint32_t size) :
   PAGE_SIZE(pageSizes[flash_nvmctrl_page_size_index()]),
   PAGES(flash_nvmctrl_pages()),
   MAX_FLASH(PAGE_SIZE * PAGES),
-  ROW_SIZE(MAX_FLASH / 64),
+  ROW_SIZE(8192),
   flash_address((volatile void *)flash_addr),
   flash_size(size)
 {
@@ -161,67 +189,31 @@ static inline uint32_t read_unaligned_uint32(const void *data)
 
 void FlashClass::write(const volatile void *flash_ptr, const void *data)
 {
-  // Calculate data boundaries
   uint32_t size = (flash_size + 3) / 4;
-
   volatile uint32_t *dst_addr = (volatile uint32_t *)flash_ptr;
-  const uint8_t *src_addr = (uint8_t *)data;
+  const uint8_t *src_addr = (const uint8_t *)data;
 
-  // Disable automatic page write
+  while (!flash_nvmctrl_ready()) { }
   flash_nvmctrl_set_manual_write();
 
-  ////KH
-  /*
-    1. Configure manual write for the NVM using WMODE (NVMCTRL.CTRLA).
-    2. Make sure the NVM is ready to accept a new command (NVMCTRL.STATUS).
-    3. Clear page buffer ( NVMCTRL.CTRLB).
-    4. Make sure NVM is ready to accept a new command (NVMCTRL.STATUS).
-    5. Clear the DONE Flag (NVMCTRL.INTFLAG).
-    6. Write data to page buffer with 32-bit accesses at the needed address.
-    7. Perform page write (NVMCTRL.CTRLB).
-    8. Make sure NVM is ready to accept a new command (NVMCTRL.STATUS).
-    9. Clear the DONE Flag (NVMCTRL.INTFLAG).
-  */
-  //KH
-
-  // 2. Make sure the NVM is ready to accept a new command (NVMCTRL.STATUS).
-  while (!flash_nvmctrl_ready()) { }
-
-  // Do writes in pages
+  // DS80000748 section 2.14.1: disable both caches before filling the page buffer.
+  const uint32_t control = flash_nvmctrl_disable_cache();
   while (size)
   {
-    // Execute "PBC" Page Buffer Clear
-    // 3. Clear page buffer ( NVMCTRL.CTRLB).
     flash_nvmctrl_command(NVMCTRL_CTRLB_CMD_PBC);
+    while (!flash_nvmctrl_ready() || !flash_nvmctrl_done()) { }
 
-    // 4. Make sure the NVM is ready to accept a new command (NVMCTRL.STATUS).
-    //while (NVMCTRL->STATUS.bit.READY != NVMCTRL_STATUS_READY ) { }
-
-    // 5. Clear the DONE Flag (NVMCTRL.INTFLAG)
-    while (!flash_nvmctrl_done()) { }
-
-    // 6. Write data to page buffer with 32-bit accesses at the needed address.
-    // Fill page buffer
-    uint32_t i;
-
-    for (i = 0; i < (PAGE_SIZE / 4) && size; i++)
+    for (uint32_t i = 0; i < (PAGE_SIZE / 4) && size; i++)
     {
-      *dst_addr = read_unaligned_uint32(src_addr);
+      *dst_addr++ = read_unaligned_uint32(src_addr);
       src_addr += 4;
-      dst_addr++;
       size--;
     }
 
-    //7. Perform page write (NVMCTRL.CTRLB).
-    // Execute "WP" Write Page
     flash_nvmctrl_command(NVMCTRL_CTRLB_CMD_WP);
-
-    // 8. Make sure NVM is ready to accept a new command (NVMCTRL.STATUS).
-    //while (NVMCTRL->STATUS.bit.READY != NVMCTRL_STATUS_READY ) { }
-
-    // 9. Clear the DONE Flag (NVMCTRL.INTFLAG)
-    while (!flash_nvmctrl_done()) { }
+    while (!flash_nvmctrl_ready() || !flash_nvmctrl_done()) { }
   }
+  flash_nvmctrl_restore_control(control);
 }
 
 /////////////////////////////////////////////////////
@@ -247,26 +239,22 @@ void FlashClass::erase(const volatile void *flash_ptr, uint32_t size)
 {
   const uint8_t *ptr = (const uint8_t *)flash_ptr;
 
-  while (size > ROW_SIZE)
+  while (size)
   {
     erase(ptr);
     ptr += ROW_SIZE;
-    size -= ROW_SIZE;
+    size = size > ROW_SIZE ? size - ROW_SIZE : 0;
   }
-
-  erase(ptr);
 }
 
 /////////////////////////////////////////////////////
 
 void FlashClass::erase(const volatile void *flash_ptr)
 {
+  while (!flash_nvmctrl_ready()) { }
   flash_nvmctrl_set_address(flash_ptr);
-
-  // Check, now erase PAGE, instead of ROW !!!
   flash_nvmctrl_command(NVMCTRL_CTRLB_CMD_EB);
-
-  while (!flash_nvmctrl_done()) { }
+  while (!flash_nvmctrl_ready() || !flash_nvmctrl_done()) { }
 }
 
 /////////////////////////////////////////////////////
