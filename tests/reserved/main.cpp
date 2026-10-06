@@ -127,6 +127,50 @@ static void bounds() {
   CHECK(std::all_of(mem.data.begin() + 4352, mem.data.end(), [](uint8_t v) { return v == 0xff; }));
 }
 
+static void ringBoundsAndWrap() {
+  for (bool smart : {false, true}) {
+#if defined(__SAMD21__)
+    if (smart) continue;
+#endif
+    for (unsigned records : {2u, 3u, 4u, 6u}) {
+      Memory mem(smart);
+      const unsigned start = 256, capacity = 64;
+      const unsigned stride = smart ? capacity + 20 : 256;
+      const unsigned length = records * stride;
+      uint8_t ram[capacity];
+      ReservedEEPROMCore store(mem);
+      CHECK(store.beginAtomicSnapshots(start, length, ram, sizeof ram) == Status::Ready);
+      for (unsigned generation = 1; generation <= records * 3; ++generation) {
+        fill(store, uint8_t(generation)); commit(store);
+        const unsigned target = start + ((generation - 1) % records) * stride;
+        CHECK(mem.data[target] == 0x52 && mem.data[target + 4] == generation - 1);
+        uint8_t reopenedRam[capacity]; ReservedEEPROMCore reopened(mem);
+        CHECK(reopened.beginAtomicSnapshots(start, length, reopenedRam, sizeof reopenedRam) == Status::Ready);
+        CHECK(reopened.valid() && pattern(reopened, uint8_t(generation)));
+      }
+      CHECK(std::all_of(mem.data.begin(), mem.data.begin() + start, [](uint8_t v) { return v == 0xff; }));
+      CHECK(std::all_of(mem.data.begin() + start + length, mem.data.end(), [](uint8_t v) { return v == 0xff; }));
+    }
+  }
+  struct WrongRow : Memory {
+    uint16_t row = 128;
+    Status geometry(ReservedEEPROMGeometry& g) override {
+      Memory::geometry(g); g.rowBytes = row; return Status::Ready;
+    }
+  } wrong;
+  uint8_t ram[64]; ReservedEEPROMCore bad(wrong);
+  for (uint16_t row : {128, 512}) {
+    wrong.row = row;
+    CHECK(bad.begin(256, 1024, ram, sizeof ram) == Status::InvalidConfiguration);
+  }
+  Memory mem; ReservedEEPROMCore aligned(mem);
+  for (unsigned offset : {255u, 257u})
+    CHECK(aligned.begin(offset, 1024, ram, sizeof ram) == Status::InvalidConfiguration);
+  for (unsigned length : {1023u, 1025u})
+    CHECK(aligned.begin(256, length, ram, sizeof ram) == Status::InvalidConfiguration);
+  CHECK(!mem.operations && !wrong.operations);
+}
+
 static void d21Persistence() {
   Memory mem;
   uint8_t ram[1025];
@@ -751,6 +795,7 @@ int main() {
   retirementPowerCuts();
   retirementRejectionsAndErrors();
   bounds();
+  ringBoundsAndWrap();
   d21Persistence();
   d21PowerCuts();
   corruption();
