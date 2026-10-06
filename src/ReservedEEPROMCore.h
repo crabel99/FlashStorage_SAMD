@@ -86,7 +86,7 @@ private:
       }
     } else {
       if (geometry_.pageBytes != 64 || geometry_.rowBytes != 256 ||
-          (offset % geometry_.rowBytes) || (bytes % geometry_.rowBytes) ||
+          (offset % 256u) || (bytes % 256u) ||
           capacity > UINT32_MAX - 319u)
         return status_ = ReservedEEPROMStatus::InvalidConfiguration;
       stride_ = (capacity + 64u + 255u) & ~255u;
@@ -403,7 +403,8 @@ private:
     finish(ReservedEEPROMStatus::Ready);
   }
   void startSnapshot() {
-    target_ = valid_ ? (active_ + 1) % records_ : 0;
+    target_ = valid_ ? active_ + 1 : 0;
+    if (target_ == records_) target_ = 0;
     cursor_ = 0;
     phase_ = atomicSmart() ? Phase::Invalidate : Phase::Erase;
   }
